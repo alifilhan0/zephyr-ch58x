@@ -1,0 +1,17 @@
+# CH5XX repository for Zephyr RTOS development.
+
+### This repo was based off from initial work done in https://github.com/xingrz/zephyr. But my main purpose is to ultimately port CH5XX boards to ZMK alongside bring wireless and USB support.
+
+What support has been added so far by @xingrz
+
+-	Qingke-VX(2,3,4).
+-	PFIC.
+-	GPIO & Pinctrl.
+-	Systick timer for the core
+
+What needs to be added (TODO for Alif Ilhan)
+
+-	BLE
+- 	ADC
+-	USB
+-	PWM and GPTimers.
