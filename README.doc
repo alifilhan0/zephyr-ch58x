@@ -12,6 +12,8 @@ What support has been added so far by @xingrz
 What needs to be added (TODO for Alif Ilhan)
 
 -	BLE
-- 	ADC
+- ADC
 -	USB
 -	PWM and GPTimers.
+- I2C
+- SPI
