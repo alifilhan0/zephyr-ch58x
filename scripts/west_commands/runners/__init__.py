@@ -60,6 +60,7 @@ _names = [
     'teensy',
     'trace32',
     'uf2',
+    'wchisp',
     'xsdb',
     'xtensa',
     # zephyr-keep-sorted-stop
