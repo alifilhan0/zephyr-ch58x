@@ -229,7 +229,6 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 		break;
 #ifdef CONFIG_NXP_WIFI_SOFTAP_SUPPORT
 	case WLAN_REASON_UAP_SUCCESS:
-		net_eth_carrier_on(g_uap.netif);
 		LOG_DBG("WLAN: UAP Started");
 #ifndef CONFIG_WIFI_NM_HOSTAPD_AP
 		ret = wlan_get_current_uap_network_ssid(uap_ssid);
@@ -252,7 +251,7 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 			return 0;
 		}
 		net_if_ipv4_set_netmask_by_addr(g_uap.netif, &dhcps_addr4, &netmask_addr);
-		net_if_up(g_uap.netif);
+		net_if_dormant_off(g_uap.netif);
 
 		if (net_addr_pton(AF_INET, CONFIG_NXP_WIFI_SOFTAP_IP_BASE, &base_addr) < 0) {
 			LOG_ERR("Invalid CONFIG_NXP_WIFI_SOFTAP_IP_BASE");
@@ -312,7 +311,7 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 		LOG_DBG("%d", disassoc_resp->reason_code);
 		break;
 	case WLAN_REASON_UAP_STOPPED:
-		net_eth_carrier_off(g_uap.netif);
+		net_if_dormant_on(g_uap.netif);
 		LOG_DBG("WLAN: UAP Stopped");
 
 		net_dhcpv4_server_stop(g_uap.netif);
@@ -421,6 +420,14 @@ static int nxp_wifi_wlan_start(void)
 	/* L1 network layer (physical layer) is up */
 	net_eth_carrier_on(g_mlan.netif);
 
+#ifdef CONFIG_NXP_WIFI_SOFTAP_SUPPORT
+	/* Initialize device as dormant */
+	net_if_dormant_on(g_uap.netif);
+
+	/* L1 network layer (physical layer) is up */
+	net_eth_carrier_on(g_uap.netif);
+#endif
+
 	return 0;
 }
 
@@ -501,6 +508,10 @@ static int nxp_wifi_start_ap(const struct device *dev, struct wifi_connect_req_p
 		return -EAGAIN;
 	}
 
+	if (params->ignore_broadcast_ssid != 0) {
+		wlan_uap_set_hidden_ssid(params->ignore_broadcast_ssid);
+	}
+
 	ret = wlan_add_network(&nxp_wlan_network);
 	if (ret != WM_SUCCESS) {
 		status = NXP_WIFI_RET_FAIL;
@@ -565,9 +576,31 @@ static int nxp_wifi_ap_config_params(const struct device *dev, struct wifi_ap_co
 			ret = wlan_uap_set_sta_ageout_timer(params->max_inactivity * 10);
 			if (ret != WM_SUCCESS) {
 				status = NXP_WIFI_RET_FAIL;
+				LOG_ERR("Failed to set maximum inactivity duration for stations");
+			} else {
+				LOG_INF("Set maximum inactivity duration for stations: %d (s)",
+					params->max_inactivity);
 			}
-		} else {
-			return -EINVAL;
+		}
+
+		if (params->type & WIFI_AP_CONFIG_PARAM_MAX_NUM_STA) {
+			ret = wlan_set_uap_max_clients(params->max_num_sta);
+			if (ret != WM_SUCCESS) {
+				status = NXP_WIFI_RET_FAIL;
+				LOG_ERR("Failed to set maximum number of stations");
+			} else {
+				LOG_INF("Set maximum number of stations: %d", params->max_num_sta);
+			}
+		}
+
+		if (params->type & WIFI_AP_CONFIG_PARAM_BANDWIDTH) {
+			ret = wlan_uap_set_bandwidth(params->bandwidth);
+			if (ret != WM_SUCCESS) {
+				status = NXP_WIFI_RET_FAIL;
+				LOG_ERR("Failed to set Wi-Fi AP bandwidth");
+			} else {
+				LOG_INF("Set  Wi-Fi AP bandwidth: %d", params->bandwidth);
+			}
 		}
 	}
 
@@ -846,6 +879,17 @@ static int nxp_wifi_connect(const struct device *dev, struct wifi_connect_req_pa
 
 	if (status != NXP_WIFI_RET_SUCCESS) {
 		LOG_ERR("Failed to connect to Wi-Fi access point");
+		return -EAGAIN;
+	}
+
+	switch (params->bandwidth) {
+	case WIFI_FREQ_BANDWIDTH_20MHZ:
+	case WIFI_FREQ_BANDWIDTH_40MHZ:
+	case WIFI_FREQ_BANDWIDTH_80MHZ:
+		wlan_uap_set_bandwidth(params->bandwidth);
+		break;
+	default:
+		LOG_ERR("Invalid bandwidth");
 		return -EAGAIN;
 	}
 
@@ -1695,6 +1739,7 @@ static const struct zep_wpa_supp_dev_ops nxp_wifi_drv_ops = {
 	.dpp_listen               = wifi_nxp_wpa_dpp_listen,
 	.remain_on_channel        = wifi_nxp_wpa_supp_remain_on_channel,
 	.cancel_remain_on_channel = wifi_nxp_wpa_supp_cancel_remain_on_channel,
+	.send_action_cancel_wait  = wifi_nxp_wpa_supp_cancel_action_wait,
 };
 #endif
 

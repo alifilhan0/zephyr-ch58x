@@ -128,6 +128,22 @@ struct bt_cap_initiator_cb {
 	 */
 	void (*unicast_stop_complete)(int err, struct bt_conn *conn);
 #endif /* CONFIG_BT_BAP_UNICAST_CLIENT */
+#if defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
+	/**
+	 * @brief The Broadcast Source has started and all of the streams are ready for audio data
+	 *
+	 * @param source The started Broadcast Source
+	 */
+	void (*broadcast_started)(struct bt_cap_broadcast_source *source);
+
+	/**
+	 * @brief The Broadcast Source has stopped and none of the streams are ready for audio data
+	 *
+	 * @param source The stopped Broadcast Source
+	 * @param reason The reason why the Broadcast Source stopped (see the BT_HCI_ERR_* values)
+	 */
+	void (*broadcast_stopped)(struct bt_cap_broadcast_source *source, uint8_t reason);
+#endif /* CONFIG_BT_BAP_BROADCAST_SOURCE */
 };
 
 /**
@@ -820,6 +836,17 @@ struct bt_cap_commander_cb {
 	 *			by bt_cap_commander_cancel().
 	 */
 	void (*broadcast_reception_stop)(struct bt_conn *conn, int err);
+	/**
+	 * @brief Callback for bt_cap_commander_distribute_broadcast_code().
+	 *
+	 * @param conn		Pointer to the connection where the error
+	 *			occurred. NULL if @p err is 0 or if cancelled by
+	 *			bt_cap_commander_cancel()
+	 * @param err		0 on success, BT_GATT_ERR() with a
+	 *			specific ATT (BT_ATT_ERR_*) error code or -ECANCELED if cancelled
+	 *			by bt_cap_commander_cancel().
+	 */
+	void (*distribute_broadcast_code)(struct bt_conn *conn, int err);
 #endif /* CONFIG_BT_BAP_BROADCAST_ASSISTANT */
 };
 

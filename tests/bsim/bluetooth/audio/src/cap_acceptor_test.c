@@ -23,6 +23,7 @@
 #include <zephyr/bluetooth/audio/micp.h>
 #include <zephyr/bluetooth/audio/vcp.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/byteorder.h>
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/bluetooth/uuid.h>
@@ -39,6 +40,17 @@
 #include "bap_common.h"
 
 #if defined(CONFIG_BT_CAP_ACCEPTOR)
+/* Zephyr Controller works best while Extended Advertising interval to be a multiple
+ * of the ISO Interval minus 10 ms (max. advertising random delay). This is
+ * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
+ * Broadcast ISO radio events.
+ */
+#define BT_LE_EXT_ADV_CONN_CUSTOM \
+		BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV | BT_LE_ADV_OPT_CONN, \
+				BT_GAP_MS_TO_ADV_INTERVAL(140), \
+				BT_GAP_MS_TO_ADV_INTERVAL(140), \
+				NULL)
+
 extern enum bst_result_t bst_result;
 
 #define SINK_CONTEXT                                                                               \
@@ -401,7 +413,22 @@ static struct bt_bap_scan_delegator_cb scan_delegator_cbs = {
 /* TODO: Expand with CAP service data */
 static const struct bt_data cap_acceptor_ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_CAS_VAL)),
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+	BT_DATA_BYTES(BT_DATA_UUID16_SOME, BT_UUID_16_ENCODE(BT_UUID_ASCS_VAL),
+		      BT_UUID_16_ENCODE(BT_UUID_CAS_VAL)),
+	BT_DATA_BYTES(BT_DATA_SVC_DATA16, BT_UUID_16_ENCODE(BT_UUID_CAS_VAL),
+		      BT_AUDIO_UNICAST_ANNOUNCEMENT_TARGETED),
+	IF_ENABLED(CONFIG_BT_BAP_UNICAST_SERVER,
+		   (BT_DATA_BYTES(BT_DATA_SVC_DATA16,
+				  BT_UUID_16_ENCODE(BT_UUID_ASCS_VAL),
+				  BT_AUDIO_UNICAST_ANNOUNCEMENT_TARGETED,
+				  BT_BYTES_LIST_LE16(SINK_CONTEXT),
+				  BT_BYTES_LIST_LE16(SOURCE_CONTEXT),
+				  0x00, /* Metadata length */),
+	))
+	IF_ENABLED(CONFIG_BT_BAP_SCAN_DELEGATOR,
+		   (BT_DATA_BYTES(BT_DATA_SVC_DATA16, BT_UUID_16_ENCODE(BT_UUID_BASS_VAL)),
+	))
 };
 
 static struct bt_csip_set_member_svc_inst *csip_set_member;
@@ -608,7 +635,7 @@ void test_start_adv(void)
 	struct bt_le_ext_adv *ext_adv;
 
 	/* Create a connectable non-scannable advertising set */
-	err = bt_le_ext_adv_create(BT_LE_ADV_CONN_FAST_1, NULL, &ext_adv);
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN_CUSTOM, NULL, &ext_adv);
 	if (err != 0) {
 		FAIL("Failed to create advertising set (err %d)\n", err);
 
@@ -721,14 +748,6 @@ static void init(void)
 		for (size_t i = 0U; i < ARRAY_SIZE(unicast_streams); i++) {
 			bt_cap_stream_ops_register(&unicast_streams[i], &unicast_stream_ops);
 		}
-
-		err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, cap_acceptor_ad,
-				      ARRAY_SIZE(cap_acceptor_ad), NULL, 0);
-		if (err != 0) {
-			FAIL("Advertising failed to start (err %d)\n", err);
-			return;
-		}
-		test_start_adv();
 	}
 
 	if (IS_ENABLED(CONFIG_BT_BAP_BROADCAST_SINK)) {
@@ -847,6 +866,8 @@ static void test_cap_acceptor_unicast(void)
 {
 	init();
 
+	test_start_adv();
+
 	auto_start_sink_streams = true;
 
 	/* TODO: wait for audio stream to pass */
@@ -859,6 +880,8 @@ static void test_cap_acceptor_unicast(void)
 static void test_cap_acceptor_unicast_timeout(void)
 {
 	init();
+
+	test_start_adv();
 
 	auto_start_sink_streams = false; /* Cause unicast_audio_start timeout */
 
@@ -1014,6 +1037,8 @@ static void test_cap_acceptor_broadcast_reception(void)
 
 	init();
 
+	test_start_adv();
+
 	WAIT_FOR_FLAG(flag_pa_request);
 	WAIT_FOR_FLAG(flag_bis_sync_requested);
 
@@ -1050,6 +1075,8 @@ static void test_cap_acceptor_broadcast_reception(void)
 static void test_cap_acceptor_capture_and_render(void)
 {
 	init();
+
+	test_start_adv();
 
 	WAIT_FOR_FLAG(flag_connected);
 

@@ -191,8 +191,13 @@ static void rampstat_work_handler(struct k_work *work)
 	uint32_t drv_status;
 	int err;
 
-	tmc5041_read(stepper_config->controller, TMC5041_DRVSTATUS(stepper_config->index),
-		     &drv_status);
+	err = tmc5041_read(stepper_config->controller, TMC5041_DRVSTATUS(stepper_config->index),
+			   &drv_status);
+	if (err != 0) {
+		LOG_ERR("%s: Failed to read DRVSTATUS register", stepper_data->stepper->name);
+		return;
+	}
+
 	if (FIELD_GET(TMC5XXX_DRV_STATUS_SG_STATUS_MASK, drv_status) == 1U) {
 		LOG_INF("%s: Stall detected", stepper_data->stepper->name);
 		err = tmc5041_write(stepper_config->controller,
@@ -296,7 +301,7 @@ static int tmc5041_stepper_is_moving(const struct device *dev, bool *is_moving)
 	return 0;
 }
 
-static int tmc5041_stepper_move(const struct device *dev, const int32_t steps)
+static int tmc5041_stepper_move_by(const struct device *dev, const int32_t micro_steps)
 {
 	const struct tmc5041_stepper_config *config = dev->config;
 	struct tmc5041_stepper_data *data = dev->data;
@@ -315,7 +320,7 @@ static int tmc5041_stepper_move(const struct device *dev, const int32_t steps)
 	if (err != 0) {
 		return -EIO;
 	}
-	int32_t target_position = position + steps;
+	int32_t target_position = position + micro_steps;
 
 	err = tmc5041_write(config->controller, TMC5041_RAMPMODE(config->index),
 			    TMC5XXX_RAMPMODE_POSITIONING_MODE);
@@ -323,7 +328,7 @@ static int tmc5041_stepper_move(const struct device *dev, const int32_t steps)
 		return -EIO;
 	}
 	LOG_DBG("Stepper motor controller %s moved to %d by steps: %d", dev->name, target_position,
-		steps);
+		micro_steps);
 	err = tmc5041_write(config->controller, TMC5041_XTARGET(config->index), target_position);
 	if (err != 0) {
 		return -EIO;
@@ -405,7 +410,7 @@ static int tmc5041_stepper_get_micro_step_res(const struct device *dev,
 	return 0;
 }
 
-static int tmc5041_stepper_set_actual_position(const struct device *dev, const int32_t position)
+static int tmc5041_stepper_set_reference_position(const struct device *dev, const int32_t position)
 {
 	const struct tmc5041_stepper_config *config = dev->config;
 	int err;
@@ -437,9 +442,9 @@ static int tmc5041_stepper_get_actual_position(const struct device *dev, int32_t
 	return 0;
 }
 
-static int tmc5041_stepper_set_target_position(const struct device *dev, const int32_t position)
+static int tmc5041_stepper_move_to(const struct device *dev, const int32_t micro_steps)
 {
-	LOG_DBG("Stepper motor controller %s set target position to %d", dev->name, position);
+	LOG_DBG("Stepper motor controller %s set target position to %d", dev->name, micro_steps);
 	const struct tmc5041_stepper_config *config = dev->config;
 	struct tmc5041_stepper_data *data = dev->data;
 	int err;
@@ -453,7 +458,10 @@ static int tmc5041_stepper_set_target_position(const struct device *dev, const i
 	if (err != 0) {
 		return -EIO;
 	}
-	tmc5041_write(config->controller, TMC5041_XTARGET(config->index), position);
+	err = tmc5041_write(config->controller, TMC5041_XTARGET(config->index), micro_steps);
+	if (err != 0) {
+		return -EIO;
+	}
 
 	if (config->is_sg_enabled) {
 		k_work_reschedule(&data->stallguard_dwork,
@@ -469,11 +477,10 @@ static int tmc5041_stepper_set_target_position(const struct device *dev, const i
 	return 0;
 }
 
-static int tmc5041_stepper_enable_constant_velocity_mode(const struct device *dev,
-							 const enum stepper_direction direction,
-							 const uint32_t velocity)
+static int tmc5041_stepper_run(const struct device *dev, const enum stepper_direction direction,
+			       const uint32_t velocity)
 {
-	LOG_DBG("Stepper motor controller %s enable constant velocity mode", dev->name);
+	LOG_DBG("Stepper motor controller %s run with velocity %d", dev->name, velocity);
 	const struct tmc5041_stepper_config *config = dev->config;
 	const struct tmc5041_config *tmc5041_config = config->controller->config;
 	struct tmc5041_stepper_data *data = dev->data;
@@ -713,17 +720,17 @@ static int tmc5041_stepper_init(const struct device *dev)
 		.stepper = DEVICE_DT_GET(child),};
 
 #define TMC5041_STEPPER_API_DEFINE(child)							\
-	static const struct stepper_driver_api tmc5041_stepper_api_##child = {			\
+	static DEVICE_API(stepper, tmc5041_stepper_api_##child) = {				\
 		.enable = tmc5041_stepper_enable,						\
 		.is_moving = tmc5041_stepper_is_moving,						\
-		.move = tmc5041_stepper_move,							\
+		.move_by = tmc5041_stepper_move_by,						\
 		.set_max_velocity = tmc5041_stepper_set_max_velocity,				\
 		.set_micro_step_res = tmc5041_stepper_set_micro_step_res,			\
 		.get_micro_step_res = tmc5041_stepper_get_micro_step_res,			\
-		.set_actual_position = tmc5041_stepper_set_actual_position,			\
+		.set_reference_position = tmc5041_stepper_set_reference_position,		\
 		.get_actual_position = tmc5041_stepper_get_actual_position,			\
-		.set_target_position = tmc5041_stepper_set_target_position,			\
-		.enable_constant_velocity_mode = tmc5041_stepper_enable_constant_velocity_mode,	\
+		.move_to = tmc5041_stepper_move_to,						\
+		.run = tmc5041_stepper_run,							\
 		.set_event_callback = tmc5041_stepper_set_event_callback, };
 
 #define TMC5041_STEPPER_DEFINE(child)								\

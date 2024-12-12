@@ -25,7 +25,7 @@ if WIFI_NM_WPA_SUPPLICANT
 
 config HEAP_MEM_POOL_ADD_SIZE_HOSTAP
 	def_int 85000 if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE && !MBEDTLS_ENABLE_HEAP
-	def_int 40000 if WIFI_NM_WPA_SUPPLICANT_AP
+	def_int 40000 if WIFI_NM_WPA_SUPPLICANT_AP || WIFI_NM_HOSTAPD_AP
 	# 8192 for MbedTLS heap
 	def_int 21808 if MBEDTLS_ENABLE_HEAP
 	# 30K is mandatory, but might need more for long duration use cases
@@ -159,9 +159,6 @@ config WIFI_NM_WPA_SUPPLICANT_CRYPTO_ALT
 	select MBEDTLS_NIST_KW_C
 	select MBEDTLS_DHM_C
 	select MBEDTLS_HKDF_C
-	select MBEDTLS_SERVER_NAME_INDICATION
-	select MBEDTLS_X509_CRL_PARSE_C
-	select MBEDTLS_TLS_VERSION_1_2
 
 config WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
 	bool "No Crypto support for WiFi"
@@ -184,6 +181,9 @@ config WIFI_NM_WPA_SUPPLICANT_CRYPTO_MBEDTLS_PSA
 config WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
 	bool "Enterprise Crypto support for WiFi"
 	select MBEDTLS_PEM_CERTIFICATE_FORMAT
+	select MBEDTLS_SERVER_NAME_INDICATION
+	select MBEDTLS_X509_CRL_PARSE_C
+	select MBEDTLS_TLS_VERSION_1_2
 	depends on !WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
 
 config EAP_TLS
@@ -234,9 +234,16 @@ config EAP_SIM
 config EAP_AKA
 	bool "EAP-AKA support"
 
+config EAP_FAST
+	bool "EAP-FAST support"
+
 config EAP_ALL
 	bool "All EAP methods support"
 	select EAP_TLS
+	select EAP_PEAP
+	select EAP_GTC
+	select EAP_TTLS
+	select EAP_MSCHAPV2
 	default y if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
 
 config WIFI_NM_WPA_SUPPLICANT_WPA3
@@ -328,7 +335,6 @@ config WIFI_NM_WPA_SUPPLICANT_DPP
 	bool "WFA Easy Connect DPP"
 	select DPP
 	select DPP2
-	select DPP3
 	select GAS
 	select GAS_SERVER
 	select OFFCHANNEL
@@ -417,8 +423,8 @@ config TESTING_OPTIONS
 
 config AP
 	bool
-	depends on WIFI_NM_WPA_SUPPLICANT_AP
-	default y if WIFI_NM_WPA_SUPPLICANT_AP
+	depends on WIFI_NM_WPA_SUPPLICANT_AP || WIFI_NM_HOSTAPD_AP
+	default y if WIFI_NM_WPA_SUPPLICANT_AP || WIFI_NM_HOSTAPD_AP
 
 config NO_RADIUS
 	bool
@@ -459,49 +465,7 @@ config WPS
 config WSC
 	bool
 
-config EAP_TLS
-	bool
-
 config IEEE8021X_EAPOL
-	bool
-
-config EAP_PEAP
-	bool
-
-config EAP_TTLS
-	bool
-
-config EAP_MD5
-	bool
-
-config EAP_MSCHAPv2
-	bool
-
-config EAP_LEAP
-	bool
-
-config EAP_PSK
-	bool
-
-config EAP_FAST
-	bool
-
-config EAP_PAX
-	bool
-
-config EAP_SAKE
-	bool
-
-config EAP_GPSK
-	bool
-
-config EAP_PWD
-	bool
-
-config EAP_EKE
-	bool
-
-config EAP_IKEv2
 	bool
 
 config CRYPTO_INTERNAL

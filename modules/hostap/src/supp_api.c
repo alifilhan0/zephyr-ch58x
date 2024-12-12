@@ -837,7 +837,7 @@ static int wpas_add_and_config_network(struct wpa_supplicant *wpa_s,
 #ifdef CONFIG_WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
 	struct wifi_eap_cipher_config cipher_config = {NULL,   "DEFAULT:!EXP:!LOW", "CCMP",
 						       "CCMP", "AES-128-CMAC",      NULL};
-	char *method;
+	char *method = NULL;
 	char phase1[128] = {0};
 	char *phase2 = NULL;
 	unsigned int index;
@@ -1075,8 +1075,11 @@ static int wpas_add_and_config_network(struct wpa_supplicant *wpa_s,
 				goto out;
 			}
 
-			if (!wpa_cli_cmd_v("set_network %d eap %s", resp.network_id, method)) {
-				goto out;
+			if (method != NULL) {
+				if (!wpa_cli_cmd_v("set_network %d eap %s", resp.network_id,
+						   method)) {
+					goto out;
+				}
 			}
 
 			if (params->security == WIFI_SECURITY_TYPE_EAP_PEAP_MSCHAPV2 ||
@@ -1535,8 +1538,10 @@ int supplicant_status(const struct device *dev, struct wifi_iface_status *status
 			ret = z_wpa_ctrl_signal_poll(&signal_poll);
 			if (!ret) {
 				status->rssi = signal_poll.rssi;
+				status->current_phy_tx_rate = signal_poll.current_txrate;
 			} else {
-				wpa_printf(MSG_WARNING, "%s:Failed to read RSSI", __func__);
+				wpa_printf(MSG_WARNING, "%s: Failed to read signal poll info",
+						   __func__);
 			}
 		}
 
@@ -1564,15 +1569,6 @@ int supplicant_status(const struct device *dev, struct wifi_iface_status *status
 		}
 
 		os_free(conn_info);
-
-		ret = wpa_drv_signal_poll(wpa_s, si);
-		if (!ret) {
-			status->current_phy_rate = si->current_txrate;
-		} else {
-			wpa_printf(MSG_WARNING, "%s: Failed to get signal info\n", __func__);
-			status->current_phy_rate = 0;
-			ret = 0;
-		}
 	} else {
 		ret = 0;
 	}
@@ -2079,6 +2075,72 @@ out:
 	return ret;
 }
 
+static int hapd_config_chan_center_seg0(struct wifi_connect_req_params *params)
+{
+	int ret = 0;
+	uint8_t center_freq_seg0_idx = 0;
+	uint8_t oper_chwidth = CHANWIDTH_USE_HT;
+	const uint8_t *center_freq = NULL;
+	static const uint8_t center_freq_40MHz[] = {38,  46,  54,  62,  102, 110,
+						    118, 126, 134, 142, 151, 159};
+	static const uint8_t center_freq_80MHz[] = {42, 58, 106, 122, 138, 155};
+	uint8_t index, index_max, chan_idx, ch_offset = 0;
+
+	/* Unless ACS is being used, both "channel" and "vht_oper_centr_freq_seg0_idx"
+	 * parameters must be set.
+	 */
+	switch (params->bandwidth) {
+	case WIFI_FREQ_BANDWIDTH_20MHZ:
+		oper_chwidth = CHANWIDTH_USE_HT;
+		center_freq_seg0_idx = params->channel;
+		break;
+	case WIFI_FREQ_BANDWIDTH_40MHZ:
+		oper_chwidth = CHANWIDTH_USE_HT;
+		center_freq = center_freq_40MHz;
+		index_max = ARRAY_SIZE(center_freq_40MHz);
+		ch_offset = 2;
+		break;
+	case WIFI_FREQ_BANDWIDTH_80MHZ:
+		oper_chwidth = CHANWIDTH_80MHZ;
+		center_freq = center_freq_80MHz;
+		index_max = ARRAY_SIZE(center_freq_80MHz);
+		ch_offset = 6;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (params->bandwidth != WIFI_FREQ_BANDWIDTH_20MHZ) {
+		chan_idx = params->channel;
+		for (index = 0; index < index_max; index++) {
+			if ((chan_idx >= (center_freq[index] - ch_offset)) &&
+			    (chan_idx <= (center_freq[index] + ch_offset))) {
+				center_freq_seg0_idx = center_freq[index];
+				break;
+			}
+		}
+	}
+
+	if (!hostapd_cli_cmd_v("set vht_oper_chwidth %d", oper_chwidth)) {
+		goto out;
+	}
+	if (!hostapd_cli_cmd_v("set vht_oper_centr_freq_seg0_idx %d", center_freq_seg0_idx)) {
+		goto out;
+	}
+#ifdef CONFIG_WIFI_NM_WPA_SUPPLICANT_11AX
+	if (!hostapd_cli_cmd_v("set he_oper_chwidth %d", oper_chwidth)) {
+		goto out;
+	}
+	if (!hostapd_cli_cmd_v("set he_oper_centr_freq_seg0_idx %d", center_freq_seg0_idx)) {
+		goto out;
+	}
+#endif
+
+	return ret;
+out:
+	return -EINVAL;
+}
+
 int hapd_config_network(struct hostapd_iface *iface,
 			struct wifi_connect_req_params *params)
 {
@@ -2112,6 +2174,11 @@ int hapd_config_network(struct hostapd_iface *iface,
 	}
 
 	if (!hostapd_cli_cmd_v("set channel %d", params->channel)) {
+		goto out;
+	}
+
+	ret = hapd_config_chan_center_seg0(params);
+	if (ret) {
 		goto out;
 	}
 
@@ -2236,58 +2303,81 @@ int hapd_config_network(struct hostapd_iface *iface,
 		goto out;
 	}
 
+	if (!hostapd_cli_cmd_v("set ignore_broadcast_ssid %d", params->ignore_broadcast_ssid)) {
+		goto out;
+	}
+
 	return ret;
 out:
 	return -1;
 }
 
+static int set_ap_config_params(const struct device *dev, struct wifi_ap_config_params *params)
+{
+	const struct wifi_mgmt_ops *const wifi_mgmt_api = get_wifi_mgmt_api(dev);
+
+	if (wifi_mgmt_api == NULL || wifi_mgmt_api->ap_config_params == NULL) {
+		return -ENOTSUP;
+	}
+
+	return wifi_mgmt_api->ap_config_params(dev, params);
+}
+
 int supplicant_ap_config_params(const struct device *dev, struct wifi_ap_config_params *params)
 {
 	struct hostapd_iface *iface;
-	const struct wifi_mgmt_ops *const wifi_mgmt_api = get_wifi_mgmt_api(dev);
 	int ret = 0;
 
-	if (params->type & WIFI_AP_CONFIG_PARAM_MAX_INACTIVITY) {
-		if (!wifi_mgmt_api || !wifi_mgmt_api->ap_config_params) {
-			wpa_printf(MSG_ERROR, "ap_config_params not supported");
-			return -ENOTSUP;
-		}
-
-		ret = wifi_mgmt_api->ap_config_params(dev, params);
-		if (ret) {
-			wpa_printf(MSG_ERROR,
-				   "Failed to set maximum inactivity duration for stations");
-		} else {
-			wpa_printf(MSG_INFO, "Set maximum inactivity duration for stations: %d (s)",
-				   params->max_inactivity);
-		}
+	ret = set_ap_config_params(dev, params);
+	if (ret && (ret != -ENOTSUP)) {
+		wpa_printf(MSG_ERROR, "Failed to set ap config params");
+		return -EINVAL;
 	}
+
+	k_mutex_lock(&wpa_supplicant_mutex, K_FOREVER);
+
+	iface = get_hostapd_handle(dev);
+	if (iface == NULL) {
+		ret = -ENOENT;
+		wpa_printf(MSG_ERROR, "Interface %s not found", dev->name);
+		goto out;
+	}
+
+	if (iface->state > HAPD_IFACE_DISABLED) {
+		ret = -EBUSY;
+		wpa_printf(MSG_ERROR, "Interface %s is not in disable state", dev->name);
+		goto out;
+	}
+
 	if (params->type & WIFI_AP_CONFIG_PARAM_MAX_NUM_STA) {
-		k_mutex_lock(&wpa_supplicant_mutex, K_FOREVER);
-
-		iface = get_hostapd_handle(dev);
-		if (!iface) {
-			ret = -ENOENT;
-			wpa_printf(MSG_ERROR, "Interface %s not found", dev->name);
-			goto out;
-		}
-
-		if (iface->state > HAPD_IFACE_DISABLED) {
-			ret = -EBUSY;
-			wpa_printf(MSG_ERROR, "Interface %s is not in disable state", dev->name);
-			goto out;
-		}
-
 		if (!hostapd_cli_cmd_v("set max_num_sta %d", params->max_num_sta)) {
 			ret = -EINVAL;
 			wpa_printf(MSG_ERROR, "Failed to set maximum number of stations");
 			goto out;
 		}
 		wpa_printf(MSG_INFO, "Set maximum number of stations: %d", params->max_num_sta);
+	}
+
+	if (params->type & WIFI_AP_CONFIG_PARAM_HT_CAPAB) {
+		if (!hostapd_cli_cmd_v("set ht_capab %s", params->ht_capab)) {
+			ret = -EINVAL;
+			wpa_printf(MSG_ERROR, "Failed to set HT capabilities");
+			goto out;
+		}
+		wpa_printf(MSG_INFO, "Set HT capabilities: %s", params->ht_capab);
+	}
+
+	if (params->type & WIFI_AP_CONFIG_PARAM_VHT_CAPAB) {
+		if (!hostapd_cli_cmd_v("set vht_capab %s", params->vht_capab)) {
+			ret = -EINVAL;
+			wpa_printf(MSG_ERROR, "Failed to set VHT capabilities");
+			goto out;
+		}
+		wpa_printf(MSG_INFO, "Set VHT capabilities: %s", params->vht_capab);
+	}
 
 out:
 		k_mutex_unlock(&wpa_supplicant_mutex);
-	}
 
 	return ret;
 }
@@ -2405,6 +2495,7 @@ out:
 
 int supplicant_ap_wps_pin(const struct device *dev, struct wifi_wps_config_params *params)
 {
+#define WPS_PIN_EXPIRE_TIME 120
 	struct hostapd_iface *iface;
 	char *get_pin_cmd = "WPS_AP_PIN random";
 	int ret  = 0;
@@ -2433,7 +2524,7 @@ int supplicant_ap_wps_pin(const struct device *dev, struct wifi_wps_config_param
 			goto out;
 		}
 
-		if (!hostapd_cli_cmd_v("wps_pin any %s", params->pin)) {
+		if (!hostapd_cli_cmd_v("wps_pin any %s %d", params->pin, WPS_PIN_EXPIRE_TIME)) {
 			goto out;
 		}
 
@@ -2467,6 +2558,20 @@ int supplicant_ap_wps_config(const struct device *dev, struct wifi_wps_config_pa
 }
 #endif
 
+static int set_ap_bandwidth(const struct device *dev, enum wifi_frequency_bandwidths bandwidth)
+{
+	const struct wifi_mgmt_ops *const wifi_mgmt_api = get_wifi_mgmt_api(dev);
+	struct wifi_ap_config_params params = {0};
+
+	if (wifi_mgmt_api == NULL || wifi_mgmt_api->ap_config_params == NULL) {
+		return -ENOTSUP;
+	}
+
+	params.bandwidth = bandwidth;
+	params.type = WIFI_AP_CONFIG_PARAM_BANDWIDTH;
+	return wifi_mgmt_api->ap_config_params(dev, &params);
+}
+
 int supplicant_ap_enable(const struct device *dev,
 			 struct wifi_connect_req_params *params)
 {
@@ -2484,6 +2589,12 @@ int supplicant_ap_enable(const struct device *dev,
 			   "Interface %s is down, dropping connect",
 			   dev->name);
 		return -1;
+	}
+
+	ret = set_ap_bandwidth(dev, params->bandwidth);
+	if (ret && (ret != -ENOTSUP)) {
+		wpa_printf(MSG_ERROR, "Failed to set ap bandwidth");
+		return -EINVAL;
 	}
 
 	k_mutex_lock(&wpa_supplicant_mutex, K_FOREVER);

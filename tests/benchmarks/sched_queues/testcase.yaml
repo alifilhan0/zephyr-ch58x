@@ -1,4 +1,8 @@
 common:
+  platform_key:
+    - arch
+  min_ram: 32
+  timeout: 120
   tags:
     - kernel
     - benchmark

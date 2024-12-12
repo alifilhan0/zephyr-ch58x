@@ -56,7 +56,7 @@ static void *stepper_setup(void)
 static void stepper_before(void *f)
 {
 	struct stepper_fixture *fixture = f;
-	(void)stepper_set_actual_position(fixture->dev, 0);
+	(void)stepper_set_reference_position(fixture->dev, 0);
 	k_poll_signal_reset(&stepper_signal);
 }
 
@@ -73,7 +73,7 @@ ZTEST_F(stepper, test_micro_step_res)
 ZTEST_F(stepper, test_actual_position)
 {
 	int32_t pos = 100u;
-	(void)stepper_set_actual_position(fixture->dev, pos);
+	(void)stepper_set_reference_position(fixture->dev, pos);
 	(void)stepper_get_actual_position(fixture->dev, &pos);
 	zassert_equal(pos, 100u, "Actual position not set correctly");
 }
@@ -87,7 +87,7 @@ ZTEST_F(stepper, test_target_position)
 	/* Pass the function name as user data */
 	(void)stepper_set_event_callback(fixture->dev, fixture->callback, &fixture);
 
-	(void)stepper_set_target_position(fixture->dev, pos);
+	(void)stepper_move_to(fixture->dev, pos);
 
 	(void)k_poll(&stepper_event, 1, K_SECONDS(5));
 	unsigned int signaled;
