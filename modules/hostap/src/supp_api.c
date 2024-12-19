@@ -13,6 +13,8 @@
 #include "includes.h"
 #include "common.h"
 #include "common/defs.h"
+#include "common/ieee802_11_defs.h"
+#include "common/ieee802_11_common.h"
 #include "wpa_supplicant/config.h"
 #include "wpa_supplicant_i.h"
 #include "driver_i.h"
@@ -26,6 +28,7 @@
 #include "ap_drv_ops.h"
 #endif
 #include "supp_events.h"
+#include "wpa_supplicant/bss.h"
 
 extern struct k_sem wpa_supplicant_ready_sem;
 extern struct wpa_global *global;
@@ -1045,6 +1048,20 @@ static int wpas_add_and_config_network(struct wpa_supplicant *wpa_s,
 				goto out;
 			}
 
+			if (params->suiteb_type == WIFI_SUITEB_192) {
+				if (params->TLS_cipher == WIFI_EAP_TLS_ECC_P384) {
+					if (!wpa_cli_cmd_v("set_network %d openssl_ciphers \"%s\"",
+							resp.network_id,
+							cipher_config.openssl_ciphers))
+						goto out;
+				} else if (params->TLS_cipher == WIFI_EAP_TLS_RSA_3K) {
+					snprintf(phase1, sizeof(phase1), "tls_suiteb=1");
+					if (!wpa_cli_cmd_v("set_network %d phase1 \"%s\"",
+							resp.network_id, &phase1[0]))
+						goto out;
+				}
+			}
+
 			if (!wpa_cli_cmd_v("set_network %d key_mgmt %s", resp.network_id,
 					   cipher_config.key_mgmt)) {
 				goto out;
@@ -1801,6 +1818,18 @@ int supplicant_set_twt(const struct device *dev, struct wifi_twt_params *params)
 	return wifi_mgmt_api->set_twt(dev, params);
 }
 
+int supplicant_set_btwt(const struct device *dev, struct wifi_twt_params *params)
+{
+	const struct wifi_mgmt_ops *const wifi_mgmt_api = get_wifi_mgmt_api(dev);
+
+	if (!wifi_mgmt_api || !wifi_mgmt_api->set_btwt) {
+		wpa_printf(MSG_ERROR, "Set Broadcast TWT not supported");
+		return -ENOTSUP;
+	}
+
+	return wifi_mgmt_api->set_btwt(dev, params);
+}
+
 int supplicant_get_power_save_config(const struct device *dev,
 				     struct wifi_ps_config *config)
 {
@@ -1916,6 +1945,41 @@ int supplicant_get_rts_threshold(const struct device *dev, unsigned int *rts_thr
 	}
 
 	return wifi_mgmt_api->get_rts_threshold(dev, rts_threshold);
+}
+
+int supplicant_bss_ext_capab(const struct device *dev, int capab)
+{
+	struct wpa_supplicant *wpa_s;
+	int is_support = 0;
+
+	wpa_s = get_wpa_s_handle(dev);
+	if (!wpa_s) {
+		wpa_printf(MSG_ERROR, "Interface %s not found", dev->name);
+		return 0;
+	}
+
+	k_mutex_lock(&wpa_supplicant_mutex, K_FOREVER);
+	is_support = wpa_bss_ext_capab(wpa_s->current_bss, capab);
+	k_mutex_unlock(&wpa_supplicant_mutex);
+
+	return is_support;
+}
+
+int supplicant_legacy_roam(const struct device *dev)
+{
+	int ret = -1;
+
+	k_mutex_lock(&wpa_supplicant_mutex, K_FOREVER);
+	if (!wpa_cli_cmd_v("scan")) {
+		goto out;
+	}
+
+	ret = 0;
+
+out:
+	k_mutex_unlock(&wpa_supplicant_mutex);
+
+	return ret;
 }
 
 #ifdef CONFIG_WIFI_NM_WPA_SUPPLICANT_WNM
@@ -2249,11 +2313,11 @@ int hapd_config_network(struct hostapd_iface *iface,
 				goto out;
 			}
 
-			if (!hostapd_cli_cmd_v("set wpa_passphrase \"%s\"", params->psk)) {
+			if (!hostapd_cli_cmd_v("set wpa_passphrase %s", params->psk)) {
 				goto out;
 			}
 
-			if (!hostapd_cli_cmd_v("set sae_password \"%s\"",
+			if (!hostapd_cli_cmd_v("set sae_password %s",
 					       params->sae_password ? params->sae_password
 								    : params->psk)) {
 				goto out;

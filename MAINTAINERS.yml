@@ -896,8 +896,8 @@ Devicetree:
     - galak
     - rruuaanng
   files-regex:
-    - dts/bindings/.*zephyr.*
-    - dts/bindings/[^,]+$
+    - ^dts/bindings/.*zephyr.*
+    - ^dts/bindings/[^,]+$
   files:
     - scripts/dts/
     - dts/common/
@@ -1392,6 +1392,7 @@ Release Notes:
     - decsny
     - lmajewski
     - pdgendt
+    - maass-hamburg
   files:
     - drivers/ethernet/
     - include/zephyr/dt-bindings/ethernet/
@@ -1648,6 +1649,7 @@ Release Notes:
   status: odd fixes
   collaborators:
     - decsny
+    - maass-hamburg
   files:
     - doc/hardware/peripherals/mdio.rst
     - drivers/mdio/
@@ -2035,6 +2037,7 @@ Release Notes:
     - tristan-google
     - ubieda
     - jeppenodgaard
+    - asemjonovs
   files:
     - drivers/sensor/
     - include/zephyr/drivers/sensor.h
@@ -3086,6 +3089,8 @@ Networking:
   maintainers:
     - jukkar
     - rlubos
+  collaborators:
+    - mrodgers-witekio
   files:
     - doc/connectivity/networking/api/http*.rst
     - include/zephyr/net/http/
@@ -4032,11 +4037,37 @@ STM32 Platforms:
     - dts/bindings/*/*stm32*
     - soc/st/stm32/
     - samples/boards/st/
+  files-exclude:
+    - boards/st/*wb*/
+    - drivers/bluetooth/hci/*stm32*.c
+    - soc/st/stm32/stm32wb*/
   labels:
     - "platform: STM32"
   description: >-
-    STM32 SOCs, dts files and related drivers. ST nucleo, disco and eval
-    boards.
+    STM32 SOCs, dts files and related drivers. ST development boards.
+
+STM32 Wireless Platforms:
+  status: maintained
+  maintainers:
+    - erwango
+  collaborators:
+    - asm5878
+    - HoZHel
+    - benothmn-st
+    - mathieuchopstm
+  files:
+    - boards/shields/x_nucleo_bnrg2a1/
+    - boards/shields/x_nucleo_idb05a1/
+    - boards/shields/x_nucleo_wb05kn1/
+    - boards/st/*wb*/
+    - drivers/bluetooth/hci/*stm32*.c
+    - drivers/bluetooth/hci/hci_spi_st.c
+    - soc/st/stm32/stm32wb*/
+  labels:
+    - "platform: STM32"
+  description: >-
+    STM32WB SOCs, dts files and related drivers. STM32WB development boards
+    and ST bluetooth shields.
 
 Espressif Platforms:
   status: maintained
@@ -4500,12 +4531,13 @@ VFS:
     - filesystem
 
 West:
-  status: odd fixes
+  status: maintained
+  maintainers:
+    - pdgendt
   collaborators:
     - mbolivar-ampere
     - carlescufi
     - swinslow
-    - pdgendt
   files:
     - scripts/west-commands.yml
     - scripts/west_commands/
@@ -4671,6 +4703,17 @@ West:
     - modules/cmsis-nn/
   labels:
     - "area: CMSIS-NN"
+
+"West project: cmsis_6":
+  status: maintained
+  maintainers:
+    - ithinuel
+  collaborators:
+    - tomi-font
+    - wearyzen
+  files: []
+  labels:
+    - "area: CMSIS_6"
 
 "West project: edtt":
   status: maintained
@@ -4923,10 +4966,24 @@ West:
     - FRASTM
     - gautierg-st
     - marwaiehm-st
+    - asm5878
+    - HoZHel
+    - benothmn-st
   files:
     - modules/Kconfig.stm32
   labels:
     - "platform: STM32"
+
+"West project: hal_tdk":
+  status: maintained
+  maintainers:
+    - afontaine-invn
+  collaborators:
+    - rbuisson-invn
+    - gjabouley-invn
+    - sriccardi-invn
+  files:
+    - modules/hal_tdk/Kconfig
 
 "West project: hal_telink":
   status: maintained
@@ -5038,6 +5095,7 @@ West:
   collaborators:
     - brgl
     - pdgendt
+    - uLipe
   files:
     - modules/lvgl/
     - tests/lib/gui/lvgl/

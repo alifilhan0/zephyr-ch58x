@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # vim: set syntax=python ts=4 :
 #
-# Copyright (c) 2018 Intel Corporation
+# Copyright (c) 2018-2024 Intel Corporation
 # Copyright (c) 2024 Arm Limited (or its affiliates). All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -195,7 +195,7 @@ class TestPlan:
         self.add_configurations()
         num = self.add_testsuites(testsuite_filter=self.run_individual_testsuite)
         if num == 0:
-            raise TwisterRuntimeError("No test cases found at the specified location...")
+            raise TwisterRuntimeError("No testsuites found at the specified location...")
         if self.load_errors:
             raise TwisterRuntimeError(
                 f"Found {self.load_errors} errors loading {num} test configurations."
@@ -346,9 +346,13 @@ class TestPlan:
 
     def report(self):
         if self.options.test_tree:
+            if not self.options.detailed_test_id:
+                logger.info("Test tree is always shown with detailed test-id.")
             self.report_test_tree()
             return 0
         elif self.options.list_tests:
+            if not self.options.detailed_test_id:
+                logger.info("Test list is always shown with detailed test-id.")
             self.report_test_list()
             return 0
         elif self.options.list_tags:
@@ -551,18 +555,18 @@ class TestPlan:
             for _, ts in self.testsuites.items():
                 if ts.tags.intersection(tag_filter):
                     for case in ts.testcases:
-                        testcases.append(case.name)
+                        testcases.append(case.detailed_name)
         else:
             for _, ts in self.testsuites.items():
                 for case in ts.testcases:
-                    testcases.append(case.name)
+                    testcases.append(case.detailed_name)
 
         if exclude_tag := self.options.exclude_tag:
             for _, ts in self.testsuites.items():
                 if ts.tags.intersection(exclude_tag):
                     for case in ts.testcases:
-                        if case.name in testcases:
-                            testcases.remove(case.name)
+                        if case.detailed_name in testcases:
+                            testcases.remove(case.detailed_name)
         return testcases
 
     def add_testsuites(self, testsuite_filter=None):
@@ -571,7 +575,7 @@ class TestPlan:
         for root in self.env.test_roots:
             root = os.path.abspath(root)
 
-            logger.debug(f"Reading test case configuration files under {root}...")
+            logger.debug(f"Reading testsuite configuration files under {root}...")
 
             for dirpath, _, filenames in os.walk(root, topdown=True):
                 if self.SAMPLE_FILENAME in filenames:
@@ -800,14 +804,14 @@ class TestPlan:
         emulation_platforms = False
 
         if all_filter:
-            logger.info("Selecting all possible platforms per test case")
+            logger.info("Selecting all possible platforms per testsuite scenario")
             # When --all used, any --platform arguments ignored
             platform_filter = []
         elif not platform_filter and not emu_filter and not vendor_filter:
-            logger.info("Selecting default platforms per test case")
+            logger.info("Selecting default platforms per testsuite scenario")
             default_platforms = True
         elif emu_filter:
-            logger.info("Selecting emulation platforms per test case")
+            logger.info("Selecting emulation platforms per testsuite scenraio")
             emulation_platforms = True
         elif vendor_filter:
             vendor_platforms = True
@@ -954,25 +958,25 @@ class TestPlan:
                 if not force_platform:
 
                     if ts.arch_allow and plat.arch not in ts.arch_allow:
-                        instance.add_filter("Not in test case arch allow list", Filters.TESTSUITE)
+                        instance.add_filter("Not in testsuite arch allow list", Filters.TESTSUITE)
 
                     if ts.arch_exclude and plat.arch in ts.arch_exclude:
-                        instance.add_filter("In test case arch exclude", Filters.TESTSUITE)
+                        instance.add_filter("In testsuite arch exclude", Filters.TESTSUITE)
 
                     if ts.vendor_allow and plat.vendor not in ts.vendor_allow:
                         instance.add_filter(
-                            "Not in test suite vendor allow list",
+                            "Not in testsuite vendor allow list",
                             Filters.TESTSUITE
                         )
 
                     if ts.vendor_exclude and plat.vendor in ts.vendor_exclude:
-                        instance.add_filter("In test suite vendor exclude", Filters.TESTSUITE)
+                        instance.add_filter("In testsuite vendor exclude", Filters.TESTSUITE)
 
                     if ts.platform_exclude and plat.name in ts.platform_exclude:
-                        instance.add_filter("In test case platform exclude", Filters.TESTSUITE)
+                        instance.add_filter("In testsuite platform exclude", Filters.TESTSUITE)
 
                 if ts.toolchain_exclude and toolchain in ts.toolchain_exclude:
-                    instance.add_filter("In test case toolchain exclude", Filters.TOOLCHAIN)
+                    instance.add_filter("In testsuite toolchain exclude", Filters.TOOLCHAIN)
 
                 if platform_filter and plat.name not in platform_filter:
                     instance.add_filter("Command line platform filter", Filters.CMD_LINE)
@@ -998,7 +1002,10 @@ class TestPlan:
                         and toolchain and (toolchain not in plat.supported_toolchains) \
                         and "host" not in plat.supported_toolchains \
                         and ts.type != 'unit':
-                    instance.add_filter("Not supported by the toolchain", Filters.PLATFORM)
+                    instance.add_filter(
+                        f"Not supported by the toolchain: {toolchain}",
+                        Filters.PLATFORM
+                    )
 
                 if plat.ram < ts.min_ram:
                     instance.add_filter("Not enough RAM", Filters.PLATFORM)
